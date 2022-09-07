@@ -2,6 +2,10 @@
 	"name": "Rbx-Wallstick",
 	"tree": {
 		"$className": "DataModel",
+		"ReplicatedFirst": {
+			"$className": "ReplicatedFirst",
+			"$path": "src/ReplicatedFirst"
+		},
 		"ServerScriptService": {
 			"$className": "ServerScriptService",
 			"$path": "src/ServerScriptService"
