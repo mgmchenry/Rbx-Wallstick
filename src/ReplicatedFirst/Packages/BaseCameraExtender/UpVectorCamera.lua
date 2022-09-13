@@ -20,32 +20,51 @@ local CameraModuleScript = PlayerModuleScript:WaitForChild("CameraModule")
 
 -- Camera variables
 
+local activeCameraController: types.BaseCamera = nil 
 local transitionRate = 0.15
 local upVector = Vector3.new(0, 1, 0)
 local upCFrame = CFrame.new()
 
-local spinPart = workspace.Terrain
-local prevSpinPart = spinPart
+local spinPart:BasePart = workspace.Terrain
+local prevSpinPart:Instance = spinPart
 local prevSpinCFrame = spinPart.CFrame
 local twistCFrame = CFrame.new()
-function Camera:GetUpVector(oldUpVector)
-	return oldUpVector
+
+BaseCameraExtender.ExtendCamera = function(self, controllerInfo)
+	activeCameraController = controllerInfo.ControllerSelf
 end
 
-function Camera:SetSpinPart(part)
+function UpVectorCamera:GetUpVector(oldUpVector:Vector3)
+	return oldUpVector	
+end
+
+function UpVectorCamera.SetUpVector(newUpVector:Vector3)
+	upVector = newUpVector
+end
+
+function UpVectorCamera:SetSpinPart(part)
 	spinPart = part
 end
 
-function Camera:SetTransitionRate(rate)
+function UpVectorCamera:SetTransitionRate(rate)
 	transitionRate = rate
 end
 
-function Camera:GetTransitionRate()
+function UpVectorCamera:GetTransitionRate()
 	return transitionRate
 end
 
+function UpVectorCamera:IsCamRelative() : boolean
+	if activeCameraController then
+		return activeCameraController.inFirstPerson or activeCameraController.inMouseLockedMode
+		--return activeCameraController:GetIsMouseLocked() or activeCameraController:IsInFirstPerson()
+	end
+	return false
+end
 
 
+--[[
+-- These functions are no longer used:
 function Camera:IsFirstPerson()
 	if self.activeCameraController then
 		return self.activeCameraController.inFirstPerson
@@ -66,12 +85,7 @@ function Camera:IsToggleMode()
 	end
 	return false
 end
-
-function Camera:IsCamRelative()
-	return self:IsMouseLocked() or self:IsFirstPerson()
-	--return self:IsToggleMode(), self:IsMouseLocked(), self:IsFirstPerson()
-end
--- Camera Module
+]]
 
 local function getRotationBetween(u, v, axis)
 	local dot, uxv = u:Dot(v), u:Cross(v)
@@ -79,17 +93,18 @@ local function getRotationBetween(u, v, axis)
 	return CFrame.new(0, 0, 0, uxv.x, uxv.y, uxv.z, 1 + dot)
 end
 
-local function twistAngle(cf, direction)
-	local axis, theta = cf:ToAxisAngle()
+local function twistAngle(cf:CFrame, direction)
+	local axis:Vector3, theta:number = cf:ToAxisAngle()
 	local w, v = math.cos(theta/2),  math.sin(theta/2)*axis
-	local proj = v:Dot(direction)*direction
-	local twist = CFrame.new(0, 0, 0, proj.x, proj.y, proj.z, w)
+	local proj:Vector3 = v:Dot(direction)*direction
+	local twist = CFrame.new(0, 0, 0, proj.X, proj.Y, proj.Z, w)
 	local nAxis, nTheta = twist:ToAxisAngle()
 	return math.sign(v:Dot(direction))*nTheta
 end
 
-local function calculateUpCFrame(self)
-	local newUpVector = self:GetUpVector(upVector)
+local function calculateUpCFrame(dt:number)
+	--mgmTodo: factor in dt?
+	local newUpVector = UpVectorCamera:GetUpVector(upVector)
 
 	local axis = workspace.CurrentCamera.CFrame.RightVector
 	local sphericalArc = getRotationBetween(upVector, newUpVector, axis)
@@ -99,12 +114,13 @@ local function calculateUpCFrame(self)
 	upCFrame = transitionCF * upCFrame
 end
 
-local function calculateSpinCFrame(self)
+
+local function calculateSpinCFrame()
 	local theta = 0
-	
+
 	if spinPart == prevSpinPart then
-		local rotation = spinPart.CFrame - spinPart.CFrame.p
-		local prevRotation = prevSpinCFrame - prevSpinCFrame.p
+		local rotation = spinPart.CFrame - spinPart.CFrame.Position
+		local prevRotation = prevSpinCFrame - prevSpinCFrame.Position
 
 		local spinAxis = rotation:VectorToObjectSpace(upVector)
 		theta = twistAngle(prevRotation:ToObjectSpace(rotation), spinAxis)
@@ -115,100 +131,80 @@ local function calculateSpinCFrame(self)
 	prevSpinPart = spinPart
 	prevSpinCFrame = spinPart.CFrame
 end
-BaseCamera.UpdateWithUpVector = function(self, dt, newCameraCFrame, newCameraFocus)
+
+local CameraExtensions = BaseCameraExtender:GetExtensionFunctions()
+
+-- mgmTodo: Hook MouseLockController.new
+local MouseLockController:types.MouseLockController = nil
+
+function CameraExtensions:Update(dt:number, ...)
+	local cameraControllerMeta:BaseCamera = getmetatable(self) -- this is the underlying camera controller __index and metatable
+	local newCameraCFrame, newCameraFocus 
+		=  cameraControllerMeta.Update(self, dt, ...) -- get cframe and focus from underlying camera controller update
+	
+	--return self:UpdateWithUpVector(dt, newCameraCFrame, newCameraFocus)
 	newCameraFocus = CFrame.new(newCameraFocus.p) -- vehicle camera fix
 
-	calculateUpCFrame(Camera, dt)
-	calculateSpinCFrame(Camera)
+	calculateUpCFrame(dt)
+	calculateSpinCFrame()
 
 	local lockOffset = Vector3.new(0, 0, 0)
-	if Camera.activeMouseLockController and Camera.activeMouseLockController:GetIsMouseLocked() then
-		lockOffset = Camera.activeMouseLockController:GetMouseLockOffset()
+	if MouseLockController and MouseLockController:GetIsMouseLocked() then
+		lockOffset = MouseLockController:GetMouseLockOffset()
 	end
 
 	local offset = newCameraFocus:ToObjectSpace(newCameraCFrame)
 	local camRotation = upCFrame * twistCFrame * offset
 	newCameraFocus = newCameraFocus - newCameraCFrame:VectorToWorldSpace(lockOffset) + camRotation:VectorToWorldSpace(lockOffset)
 	newCameraCFrame = newCameraFocus * camRotation
-	return newCameraCFrame, newCameraFocus
+	
+	
+
+	self.lastCameraTransform = newCameraCFrame
+	self.lastCameraFocus = newCameraFocus
+	
+	return newCameraCFrame, newCameraFocus, ...
 end
 
-function Camera:UpdateXXX(dt)
-	if self.activeCameraController then
-		self.activeCameraController:UpdateMouseBehavior()
-
-		local newCameraCFrame, newCameraFocus = self.activeCameraController:Update(dt)
-		newCameraFocus = CFrame.new(newCameraFocus.p) -- vehicle camera fix
-		--self.activeCameraController:ApplyVRTransform()
-
-		calculateUpCFrame(self, dt)
-		calculateSpinCFrame(self)
-
-		local lockOffset = Vector3.new(0, 0, 0)
-		if self.activeMouseLockController and self.activeMouseLockController:GetIsMouseLocked() then
-			lockOffset = self.activeMouseLockController:GetMouseLockOffset()
-		end
-
-		local offset = newCameraFocus:ToObjectSpace(newCameraCFrame)
-		local camRotation = upCFrame * twistCFrame * offset
-		newCameraFocus = newCameraFocus - newCameraCFrame:VectorToWorldSpace(lockOffset) + camRotation:VectorToWorldSpace(lockOffset)
-		newCameraCFrame = newCameraFocus * camRotation
-
-		if self.activeOcclusionModule then
-			newCameraCFrame, newCameraFocus = self.activeOcclusionModule:Update(dt, newCameraCFrame, newCameraFocus)
-		end
-
-		-- Here is where the new CFrame and Focus are set for this render frame
-		local currentCamera = game.Workspace.CurrentCamera :: Camera
-		currentCamera.CFrame = newCameraCFrame
-		currentCamera.Focus = newCameraFocus
-
-		-- Update to character local transparency as needed based on camera-to-subject distance
-		if self.activeTransparencyController then
-			self.activeTransparencyController:Update(dt)
-		end
-
-		if CameraInput.getInputEnabled() then
-			CameraInput.resetInputForFrameEnd()
-		end
-	end
-end
-function BaseCamera:CalculateNewLookCFrameFromArg(suppliedLookVector, rotateInput)
+function CameraExtensions:CalculateNewLookCFrameFromArg(suppliedLookVector: Vector3?, rotateInput:Vector2, ...)
 	local currLookVector = suppliedLookVector or self:GetCameraLookVector()
-	currLookVector = upCFrame:VectorToObjectSpace(currLookVector)
-
-	local currPitchAngle = math.asin(currLookVector.y)
-	local yTheta = math.clamp(rotateInput.y, -MAX_Y + currPitchAngle, -MIN_Y + currPitchAngle)
-	local constrainedRotateInput = Vector2.new(rotateInput.x, yTheta)
-	local startCFrame = CFrame.new(ZERO3, currLookVector)
-	local newLookCFrame = CFrame.Angles(0, -constrainedRotateInput.x, 0) * startCFrame * CFrame.Angles(-constrainedRotateInput.y,0,0)
-
-	return newLookCFrame
+	currLookVector = upCFrame:VectorToObjectSpace(currLookVector, ...)
+	
+	-- get underlying camera controller __index and metatable
+	local cameraControllerMeta:BaseCamera = getmetatable(self)
+	return cameraControllerMeta.CalculateNewLookCFrameFromArg(self, currLookVector, rotateInput, ...)
 end
 
-local CameraInput = require(CameraModule:WaitForChild("CameraInput"))
-function BaseCamera:CalculateNewLookCFrame(suppliedLookVector)
-	return self:CalculateNewLookCFrameFromArg(suppliedLookVector, self.rotateInput)
+--[[
+-- Depricated after FFlagUserCameraInputRefactor:
+local CameraInput: types.CameraInput = require(CameraModuleScript:WaitForChild("CameraInput"))
+function CameraExtensions:CalculateNewLookCFrame(suppliedLookVector)
+	local rotateInput = CameraInput.getRotation()
+	-- self.rotateInput is no longer a property of camera controllers
+	return self:CalculateNewLookCFrameFromArg(suppliedLookVector, rotateInput)
 end
--- Base Camera
+]]
 
+local CameraUtils:CameraUtils = require(CameraModuleScript:WaitForChild("CameraUtils"))
 
-
-
-
-local defaultUpdateMouseBehavior = BaseCamera.UpdateMouseBehavior
-
-function BaseCamera:UpdateMouseBehavior()
-	defaultUpdateMouseBehavior(self)
+-- todo: see if this is still needed
+function CameraExtensions:UpdateMouseBehavior()
+	-- get underlying camera controller __index and metatable
+	local cameraControllerMeta:BaseCamera = getmetatable(self)
+	cameraControllerMeta.UpdateMouseBehavior(self)
+	CameraUtils.setRotationTypeOverride(Enum.RotationType.MovementRelative)
+	--[[
 	if UserGameSettings.RotationType == Enum.RotationType.CameraRelative then
 		UserGameSettings.RotationType = Enum.RotationType.MovementRelative
 	end
+	]]
 end
+
 
 -- Popper Camera
 
-local Poppercam = require(CameraModule:WaitForChild("Poppercam"))
-local ZoomController = require(CameraModule:WaitForChild("ZoomController"))
+local Poppercam = require(CameraModuleScript:WaitForChild("Poppercam"))
+local ZoomController = require(CameraModuleScript:WaitForChild("ZoomController"))
 
 function Poppercam:Update(renderDt, desiredCameraCFrame, desiredCameraFocus, cameraController)
 	local rotatedFocus = desiredCameraFocus * (desiredCameraCFrame - desiredCameraCFrame.p)
@@ -216,41 +212,79 @@ function Poppercam:Update(renderDt, desiredCameraCFrame, desiredCameraFocus, cam
 	local zoom = ZoomController.Update(renderDt, rotatedFocus, extrapolation)
 	return rotatedFocus*CFrame.new(0, 0, zoom), desiredCameraFocus
 end
--- Vehicle Camera
 
-local VehicleCamera = require(CameraModule:WaitForChild("VehicleCamera"))
-local VehicleCameraCore = require(CameraModule.VehicleCamera:WaitForChild("VehicleCameraCore"))
+local cameraUtils_base = {
+	GetAngleBetweenXZVectors = CameraUtils.GetAngleBetweenXZVectors
+}
+
+
+-- Vehicle Camera
+local VehicleCamera = require(CameraModuleScript:WaitForChild("VehicleCamera"))
+local VehicleCameraCore = require(CameraModuleScript.VehicleCamera:WaitForChild("VehicleCameraCore"))
 local setTransform = VehicleCameraCore.setTransform
 
 function VehicleCameraCore:setTransform(transform)
 	transform = upCFrame:ToObjectSpace(transform - transform.p) + transform.p
 	return setTransform(self, transform)
 end
--- Camera Utilities
 
-local Utils = require(CameraModule:WaitForChild("CameraUtils"))
-
-function Utils.GetAngleBetweenXZVectors(v1, v2)
-	v1 = upCFrame:VectorToObjectSpace(v1)
-	v2 = upCFrame:VectorToObjectSpace(v2)
-	return math.atan2(v2.X*v1.Z-v2.Z*v1.X, v2.X*v1.X+v2.Z*v1.Z)
-end
--- Control Modifications
-
-local Control = require(PlayerModule:WaitForChild("ControlModule"))
-local TouchJump = require(PlayerModule.ControlModule:WaitForChild("TouchJump"))
-
-function Control:IsJumping()
-	if self.activeController then
-		return self.activeController:GetIsJumping()
-			or (self.touchJumpController and self.touchJumpController:GetIsJumping())
+function UpVectorCamera.EnableUpVector()
+	function CameraUtils.GetAngleBetweenXZVectors(v1, v2)
+		v1 = upCFrame:VectorToObjectSpace(v1)
+		v2 = upCFrame:VectorToObjectSpace(v2)
+		return math.atan2(v2.X*v1.Z-v2.Z*v1.X, v2.X*v1.X+v2.Z*v1.Z)
 	end
-	return false
 end
 
-local oldEnabled = TouchJump.UpdateEnabled
-
-function TouchJump:UpdateEnabled()
-	self.jumpStateEnabled = true
-	oldEnabled(self)
+function UpVectorCamera.DisableUpVector()
+	CameraUtils.GetAngleBetweenXZVectors = cameraUtils_base.GetAngleBetweenXZVectors
 end
+
+
+
+local function considerRemovingTheseFunctions()
+	-- Control Modifications
+	local Control = require(PlayerModuleScript:WaitForChild("ControlModule"))
+	local TouchJump = require(PlayerModuleScript:WaitForChild("ControlModule")
+		:WaitForChild("TouchJump"))
+	
+	--[[ 
+	-- ControlModule.IsJumping() is never called by any code anywhere
+	function Control:IsJumping()
+		if self.activeController then
+			return self.activeController:GetIsJumping()
+				or (self.touchJumpController and self.touchJumpController:GetIsJumping())
+		end
+		return false
+	end
+	]]
+	
+	
+	local oldEnabled = TouchJump.UpdateEnabled
+	function TouchJump:UpdateEnabled()
+		if not self.jumpStateEnabled then
+			print("jumpState is not enabled, so TouchJump:UpdateEnabled override was used")
+			self.jumpStateEnabled = true
+			--[[
+				mgmTodo - I don't know if this is needed.
+				TouchJump.jumpStateEnabled is set to false potentially here:
+				function TouchJump:HumanoidStateEnabledChanged(state, isEnabled)
+					if state == Enum.HumanoidStateType.Jumping then
+						self.jumpStateEnabled = isEnabled
+						self:UpdateEnabled()
+					end
+				end
+				
+				or near end of TouchJump:CharacterAdded(char):
+				
+				self.jumpStateEnabled = self.humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+				
+			]]
+		end
+		oldEnabled(self)
+	end
+end
+considerRemovingTheseFunctions()
+UpVectorCamera.EnableUpVector()
+
+return UpVectorCamera
