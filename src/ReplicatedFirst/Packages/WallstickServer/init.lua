@@ -1,9 +1,8 @@
+--!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterPlayerScripts = game:GetService("StarterPlayer"):WaitForChild("StarterPlayerScripts")
-local StarterCharacterScripts = game:GetService("StarterPlayer"):WaitForChild("StarterCharacterScripts")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 
-local Server = script:WaitForChild("Server")
-local Client = script:WaitForChild("Client")
+local WallstickServer = {}
 
 local function replace(child, parent)
 	local found = parent:FindFirstChild(child.Name)
@@ -11,12 +10,51 @@ local function replace(child, parent)
 	child.Parent = parent
 end
 
-require(Server:WaitForChild("Collisions"))
-require(Server:WaitForChild("Remotes"))
+local isDeployed = false
+function WallstickServer.Deploy()
+	if isDeployed then return end
+	
+	local WallstickServerScript = script
+	local ServerPackages = script.Parent
+	local WallstickPlayerScripts = -- Client = --script:WaitForChild("Client")
+		WallstickServerScript:WaitForChild("WallstickPlayerScripts")
+	
+	local UpVectorCameraLoader = ServerPackages:WaitForChild("BaseCameraExtender")
+	:WaitForChild("PlayerScriptsLoader")
+	UpVectorCameraLoader.Parent = WallstickPlayerScripts
+	
+	local StarterPlayerScripts = game:GetService("StarterPlayer"):WaitForChild("StarterPlayerScripts")
+	local StarterCharacterScripts = game:GetService("StarterPlayer"):WaitForChild("StarterCharacterScripts")
+	
+	replace(WallstickPlayerScripts:WaitForChild("PlayerScriptsLoader"), StarterPlayerScripts)
+	replace(WallstickPlayerScripts:WaitForChild("RbxCharacterSounds"), StarterPlayerScripts)
+	replace(WallstickPlayerScripts:WaitForChild("WallstickLoader"), StarterPlayerScripts)
+	replace(WallstickPlayerScripts:WaitForChild("Animate"), StarterCharacterScripts)
 
-replace(Client:WaitForChild("PlayerScriptsLoader"), StarterPlayerScripts)
-replace(Client:WaitForChild("RbxCharacterSounds"), StarterPlayerScripts)
-replace(Client:WaitForChild("WallstickClient"), StarterPlayerScripts)
-replace(Client:WaitForChild("Animate"), StarterCharacterScripts)
+	--script:WaitForChild("Wallstick").Parent = ReplicatedStorage
+	
+	isDeployed = true
+end
 
-script:WaitForChild("Wallstick").Parent = ReplicatedStorage
+local Remotes
+function WallstickServer.Start()
+	require(script:WaitForChild("Collisions"))
+	Remotes = require(script:WaitForChild("Remotes"))
+	
+	WallstickServer.Deploy()
+end
+
+function WallstickServer.StartCharacterCFrameReplication()
+	if Remotes then
+		Remotes.StartCharacterCFrameReplication()
+	end
+end
+
+function WallstickServer.StopCharacterCFrameReplication()
+	if Remotes then
+		Remotes.StopCharacterCFrameReplication()
+	end
+end
+
+
+return WallstickServer

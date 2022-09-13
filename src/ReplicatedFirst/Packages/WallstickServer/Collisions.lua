@@ -1,3 +1,4 @@
+--!strict
 local PhysicsService = game:GetService("PhysicsService")
 
 local defaultGroup = PhysicsService:GetCollisionGroupName(0)

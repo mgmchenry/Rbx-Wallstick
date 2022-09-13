@@ -1,9 +1,21 @@
+--!strict
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local Wallstick = script.Parent.Parent:WaitForChild("Wallstick")
-local RemotesFolder = Wallstick:WaitForChild("Remotes")
-local CONSTANTS = require(Wallstick:WaitForChild("Constants"))
+local wallstickClientPath = game:GetService("ReplicatedFirst")
+:FindFirstChild("Packages")
+:FindFirstChild("WallstickClient")
+
+local WallstickConfig = require(wallstickClientPath:FindFirstChild("WallstickConfig"))
+
+--local Wallstick = script.Parent.Parent.Parent:WaitForChild("WallstickClient")
+--local RemotesFolder = Wallstick:WaitForChild("Remotes")
+local RemotesFolder = Instance.new("Folder")
+RemotesFolder.Name = "WallstickRemotes"
+RemotesFolder.Parent = WallstickConfig.Get.RemoteParent()
+--RemotesFolder.Parent = workspace
+
+local CONSTANTS = require(wallstickClientPath:WaitForChild("Constants"))
 
 local setCollidable = Instance.new("RemoteEvent")
 setCollidable.Name = "SetCollidable"
@@ -14,7 +26,7 @@ setCollidable.OnServerEvent:Connect(function(player, bool)
 		return
 	end
 
-	for _, part in pairs(player.Character:GetChildren()) do
+	for _, part in pairs((player.Character :: any):GetChildren()) do
 		if part:IsA("BasePart") then
 			part.CollisionGroupId = not bool and CONSTANTS.PHYSICS_ID or 0
 		end
@@ -74,13 +86,27 @@ local function onStep(dt)
 		storage.PrevCFrame = cf
 		
 		local character = player.Character
-		if character and character:FindFirstChild("HumanoidRootPart") then
-			character.HumanoidRootPart.CFrame = storage.Part.CFrame * cf
+		local HRP:BasePart = (character and character:FindFirstChild("HumanoidRootPart") or nil) :: any
+		if HRP then
+			HRP.CFrame = storage.Part.CFrame * cf
 		end 
 	end
 end
 
--- This only need to run if you need an accurate character cframe on the server
--- RunService.Heartbeat:Connect(onStep)
+local Remotes = {}
+local heartbeat:RBXScriptConnection
+function Remotes.StartCharacterCFrameReplication()
+	if heartbeat==nil then
+		-- This only need to run if you need an accurate character cframe on the server
+		heartbeat = RunService.Heartbeat:Connect(onStep) 
+	end
+end
 
-return true
+function Remotes.StopCharacterCFrameReplication()
+	if heartbeat then
+		heartbeat:Disconnect()
+		heartbeat = nil :: any
+	end
+end
+
+return Remotes
