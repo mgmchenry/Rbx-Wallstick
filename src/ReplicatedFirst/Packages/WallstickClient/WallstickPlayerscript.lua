@@ -1,9 +1,24 @@
+--!strict
+local WallsticPlayerscript = {}
+
+--mgmTodo: Does it make sense that this code isn't in WallstickClient instead?
+--mgmTodo: Need to ensure Custom PlayerScriptsLoader has run and BaseCameraExtender is done first
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 
-local Wallstick = ReplicatedStorage:WaitForChild("Wallstick")
-local ReplicatePhysics = Wallstick:WaitForChild("Remotes"):WaitForChild("ReplicatePhysics")
+local Wallstick = script.Parent 
+	--ReplicatedFirst:WaitForChild("Packages")
+	--:WaitForChild("WallstickClient")
+
+
+local WallstickConfig = require(Wallstick:FindFirstChild("WallstickConfig"))
+local RemotesParent = WallstickConfig.Get.RemoteParent()
+local WallstickRemotes = RemotesParent:WaitForChild("WallstickRemotes")
+
+--local WallstickRemotes = workspace:WaitForChild("Remotes")
+local ReplicatePhysics:RemoteEvent = WallstickRemotes:WaitForChild("ReplicatePhysics") :: any
 
 local myPlayer = Players.LocalPlayer
 local replicationStorage = {}
@@ -63,14 +78,17 @@ local function onStep(dt)
 
 		storage.PrevPart = storage.Part
 		storage.PrevCFrame = cf
-		
+
 		local character = player.Character
 		if character and character:FindFirstChild("HumanoidRootPart") then
-			character.HumanoidRootPart.Anchored = true
-			character.HumanoidRootPart.CFrame = storage.Part.CFrame * cf
+			local hrp:BasePart = character:FindFirstChild("HumanoidRootPart") :: any
+			hrp.Anchored = true
+			hrp.CFrame = storage.Part.CFrame * cf
 		end 
 	end
 end
 
 RunService.RenderStepped:Connect(onStep)
 --RunService.Heartbeat:Connect(onStep)
+
+return WallsticPlayerscript

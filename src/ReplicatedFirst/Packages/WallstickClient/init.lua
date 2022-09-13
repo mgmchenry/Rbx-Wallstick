@@ -1,3 +1,4 @@
+--!strict
 -- CONSTANTS
 
 local Players = game:GetService("Players")
@@ -8,7 +9,13 @@ local CONSTANTS = require(script:WaitForChild("Constants"))
 local ZERO3 = Vector3.new(0, 0, 0)
 local UNIT_Y = Vector3.new(0, 1, 0)
 
-local Remotes = script:WaitForChild("Remotes")
+local WallstickConfig = require(script:FindFirstChild("WallstickConfig"))
+local RemotesParent = WallstickConfig.Get.RemoteParent()
+
+
+local Remotes = --script:WaitForChild("Remotes")
+	RemotesParent:WaitForChild("WallstickRemotes")
+	--workspace:WaitForChild("Remotes")
 local Utility = script:WaitForChild("Utility")
 local CharacterModules = script:WaitForChild("CharacterModules")
 
@@ -19,27 +26,46 @@ local Control = require(CharacterModules:WaitForChild("Control"))
 local Animation = require(CharacterModules:WaitForChild("Animation"))
 local Physics = require(script:WaitForChild("Physics"))
 
-local ReplicatePhysics = Remotes:WaitForChild("ReplicatePhysics")
-local SetCollidable = Remotes:WaitForChild("SetCollidable")
+local ReplicatePhysics:RemoteEvent = Remotes:WaitForChild("ReplicatePhysics") :: any
+local SetCollidable:RemoteEvent = Remotes:WaitForChild("SetCollidable") :: any
 
 -- Class
 
-local WallstickClass = {}
+type Physics = typeof(Physics.new(nil :: any))
+type Camera = typeof(Camera.new(nil :: any))
+local WallstickClass = {
+	HRP = (nil :: any) :: BasePart,
+	Physics = (nil :: any) :: Physics,
+	_camera = (nil :: any) :: Camera,
+}
 WallstickClass.__index = WallstickClass
 WallstickClass.ClassName = "Wallstick"
 
 -- Public Constructors
 
-function WallstickClass.new(player)
+function WallstickClass:CharacterAdded(character:Model)
+	self.Character = character
+	local humanoid:Humanoid = character:WaitForChild("Humanoid") :: any
+	self.Humanoid = humanoid
+	self.HRP = humanoid.RootPart :: BasePart
+end
+
+function WallstickClass.new(player:Player)
 	local self = setmetatable({}, WallstickClass)
 
+	self.Maid = Maid.new()
 	self.Player = player
-	self.Character = player.Character
-	self.Humanoid = player.Character:WaitForChild("Humanoid")
-	self.HRP = self.Humanoid.RootPart
-	self.Physics = Physics.new(self)
+	self.Maid:Mark(
+		player.CharacterAdded:Connect(function(character:Model)
+			self:CharacterAdded(character) 
+		end)
+	)
+	if player.Character then
+		self:CharacterAdded(player.Character)
+	end
+	self.Physics = Physics.new(self :: any)
 
-	self._camera = Camera.new(self)
+	self._camera = Camera.new(self :: any)
 	self._control = Control.new(self)
 	self._animation = Animation.new(self)
 
@@ -48,19 +74,19 @@ function WallstickClass.new(player)
 	self._collisionParts = {}
 	self._fallStart = 0
 
-	self.Maid = Maid.new()
 	self.Changed = Signal.new()
 
 	self.Part = nil
 	self.Normal = UNIT_Y
 	self.Mode = nil
 
-	init(self)
+	self:_init()
 
 	return self
 end
 
 -- Private Methods
+
 
 local function setCollisionGroupId(array, id)
 	for _, part in pairs(array) do
@@ -76,7 +102,7 @@ local function getRotationBetween(u, v, axis)
 	return CFrame.new(0, 0, 0, uxv.x, uxv.y, uxv.z, 1 + dot)
 end
 
-local function generalStep(self, dt)
+local function generalStep(self: Wallstick, dt)
 	self.HRP.Velocity = ZERO3
 	self.HRP.RotVelocity = ZERO3
 	self.HRP.CFrame = self.Part.CFrame * self.Physics.Floor.CFrame:ToObjectSpace(self.Physics.HRP.CFrame)
@@ -90,7 +116,7 @@ local function generalStep(self, dt)
 	self._camera:SetUpVector(self.Part.CFrame:VectorToWorldSpace(self.Normal))
 end
 
-local function collisionStep(self, dt)
+local function collisionStep(self: Wallstick, dt)
 	local parts = workspace:FindPartsInRegion3WithIgnoreList(Region3.new(
 		self.HRP.Position - CONSTANTS.COLLIDER_SIZE2,
 		self.HRP.Position + CONSTANTS.COLLIDER_SIZE2
@@ -154,8 +180,22 @@ local function collisionStep(self, dt)
 			physicsPart.Transparency = CONSTANTS.DEBUG_TRANSPARENCY
 			physicsPart.Anchored = true
 			physicsPart.CastShadow = false
+			
+			-- mgmtodo: figure out if I can just use the non-depricated properties
 			physicsPart.Velocity = ZERO3
 			physicsPart.RotVelocity = ZERO3
+			--[[
+				mgm 2022-0912 - I tested switching away from the depricated properties in WallstickClient and it didn't cause obvious problems like changing it in Physics
+				Once I understand what the difference is, I'll reconsider getting rid of Velocity and RotVelocity
+				
+				Roblox script analysis claims: 
+				DeprecatedApi: (187,2) Member 'BasePart.Velocity' is deprecated, use 'AssemblyLinearVelocity' instead
+				DeprecatedApi: (188,2) Member 'BasePart.RotVelocity' is deprecated, use 'AssemblyAngularVelocity' instead
+				however, they do not fully acomplish the same result as setting the Velocity and RotVelocity of a part
+			--]]
+			physicsPart.AssemblyLinearVelocity = ZERO3
+			physicsPart.AssemblyAngularVelocity = ZERO3
+			
 			physicsPart.Parent = self.Physics.Collision
 
 			newCollisionParts[part] = physicsPart
@@ -173,7 +213,7 @@ local function collisionStep(self, dt)
 	end
 end
 
-local function characterStep(self, dt)
+local function characterStep(self: Wallstick, dt)
 	local move = self._control:GetMoveVector()
 	
 	if self.Mode ~= "Debug" then
@@ -241,7 +281,7 @@ local function setSeated(self, bool)
 	self._seated = bool
 end
 
-function init(self)
+function WallstickClass:_init()
 	setCollisionGroupId(self.Character:GetChildren(), CONSTANTS.PHYSICS_ID)
 	SetCollidable:FireServer(false)
 
@@ -277,26 +317,28 @@ function init(self)
 
 	self.Maid:Mark(self.Physics.Humanoid.StateChanged:Connect(function(_, new)
 		if new == Enum.HumanoidStateType.Freefall then
-			self._fallStart = self.Physics.HRP.Position.y
+			self._fallStart = (self.Physics :: Physics).HRP.Position.Y
 		end
 	end))
 
-	RunService:BindToRenderStep("WallstickStep", Enum.RenderPriority.Camera.Value - 1, function(dt)
-		if self._seated then
-			self._camera:SetUpVector(self.HRP.CFrame.YVector)
-			return
-		end
+	RunService:BindToRenderStep("WallstickStep", Enum.RenderPriority.Camera.Value - 1, function(dt) self:WallstickStep(dt) end)
+end
 
-		generalStep(self, dt)
-		collisionStep(self, dt)
-		characterStep(self, dt)
-		replicateStep(self, dt)
+function WallstickClass:WallstickStep(dt)
+	if self._seated then
+		self._camera:SetUpVector(self.HRP.CFrame.YVector)
+		return
+	end
 
-		local height, distance = self:GetFallHeight()
-		if height <= workspace.FallenPartsDestroyHeight then
-			self:Destroy()
-		end
-	end)
+	generalStep(self, dt)
+	collisionStep(self, dt)
+	characterStep(self, dt)
+	replicateStep(self, dt)
+
+	local height, distance = self:GetFallHeight()
+	if height <= workspace.FallenPartsDestroyHeight then
+		self:Destroy()
+	end	
 end
 
 -- Public Methods
@@ -307,11 +349,11 @@ function WallstickClass:SetMode(mode)
 end
 
 function WallstickClass:GetTransitionRate()
-	return self._camera.CameraModule:GetTransitionRate()
+	return self._camera.UpVectorCamera:GetTransitionRate()
 end
 
 function WallstickClass:SetTransitionRate(rate)
-	self._camera.CameraModule:SetTransitionRate(rate)
+	(self._camera :: Camera).UpVectorCamera:SetTransitionRate(rate)
 end
 
 function WallstickClass:GetFallHeight()
@@ -380,6 +422,7 @@ function WallstickClass:Destroy()
 	self.Maid:Sweep()
 end
 
+type Wallstick = typeof(WallstickClass.new(nil :: any))
 --
 
 return WallstickClass
