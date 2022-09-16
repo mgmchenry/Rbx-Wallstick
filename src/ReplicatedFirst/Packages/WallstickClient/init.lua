@@ -8,6 +8,7 @@ local CONSTANTS = require(script:WaitForChild("Constants"))
 
 local ZERO3 = Vector3.new(0, 0, 0)
 local UNIT_Y = Vector3.new(0, 1, 0)
+local VOID = nil :: any
 
 local WallstickConfig = require(script:FindFirstChild("WallstickConfig"))
 local RemotesParent = WallstickConfig.Get.RemoteParent()
@@ -17,10 +18,11 @@ local Remotes = --script:WaitForChild("Remotes")
 	RemotesParent:WaitForChild("WallstickRemotes")
 	--workspace:WaitForChild("Remotes")
 local Utility = script:WaitForChild("Utility")
-local CharacterModules = script:WaitForChild("CharacterModules")
-
 local Maid = require(Utility:WaitForChild("Maid"))
 local Signal = require(Utility:WaitForChild("Signal"))
+
+
+local CharacterModules = script:WaitForChild("CharacterModules")
 local Camera = require(CharacterModules:WaitForChild("Camera"))
 local Control = require(CharacterModules:WaitForChild("Control"))
 local Animation = require(CharacterModules:WaitForChild("Animation"))
@@ -31,64 +33,124 @@ local SetCollidable:RemoteEvent = Remotes:WaitForChild("SetCollidable") :: any
 
 -- Class
 
-type Physics = typeof(Physics.new(nil :: any))
-type Camera = typeof(Camera.new(nil :: any))
+type CameraModeEnum = CONSTANTS.CameraModeEnum
+type Physics = Physics.PhysicsInstance --typeof(Physics.new(nil :: any))
+type Camera = Camera.CameraInstance -- typeof(Camera.new(nil :: any))
+type Control = typeof(Control.new(VOID :: WallstickInstance))
+type Animation = typeof(Animation.new(VOID :: WallstickInstance))
+local typeDefs = {}
+
 local WallstickClass = {
-	HRP = (nil :: any) :: BasePart,
-	Physics = (nil :: any) :: Physics,
-	_camera = (nil :: any) :: Camera,
+	--HRP = (nil :: any) :: BasePart,
+	--Physics = (nil :: any) :: Physics,
+	--_camera = (nil :: any) :: Camera,
 }
 WallstickClass.__index = WallstickClass
 WallstickClass.ClassName = "Wallstick"
 
--- Public Constructors
+local WallstickModule = {}; WallstickModule = WallstickClass
 
+-- Public Constructors
+function getNewWallstickState()
+	local self = {}
+	self._seated = false
+	self._replicateTick = -1
+	self._collisionParts = {}
+	self._fallStart = 0
+
+	self.Normal = UNIT_Y
+	self.Part = VOID :: BasePart
+	self.Mode = VOID :: CameraModeEnum
+
+	self.Maid = Maid.new()
+	self.Changed = Signal.new()
+	
+	
+	return self :: typeof(self) & {
+		--Player: string -- wallstick for an NPC would need a character, but not a player
+		-- mgmTodo, but that's a problem for another time
+		-- these properties are assigned in WallstickModule.new(Player)
+		Player: Player,
+		Character: Model,
+		Humanoid: Humanoid,
+		HRP: BasePart,
+	}
+end
+
+--[[ this can be removed. 
+--This method got added to account for initializing Wallstick before Player.Character.Humanoid.RootPart might be fully present
+--Instead, Wallstick requires these to be present before initializing
 function WallstickClass:CharacterAdded(character:Model)
 	self.Character = character
 	local humanoid:Humanoid = character:WaitForChild("Humanoid") :: any
 	self.Humanoid = humanoid
 	self.HRP = humanoid.RootPart :: BasePart
 end
+]]
 
-function WallstickClass.new(player:Player)
-	local self = setmetatable({}, WallstickClass)
+typeDefs.WallstickState = VOID :: (typeof(getNewWallstickState()) & {
+	-- these properties require a wallstick instance to be created before they can be set. would be good to refactor that
+	Physics: Physics,
+	_camera: Camera,
+	_control: Control,
+	_animation: Animation,
+})
 
-	self.Maid = Maid.new()
+function WallstickModule.new( player:Player)
+	local self: WallstickInstance = setmetatable(getNewWallstickState(), WallstickClass) :: any
+	
+	assert(player~=nil and player:IsA("Player"), "Can't create wallstick controller without player. yet.")
 	self.Player = player
+	
+	assert(player.Character~=nil and player.Character:IsA("Model"), "Can't create wallstick controller without a player character model")
+	self.Character = player.Character
+	
+	local humanoid:Instance? = self.Character:FindFirstChild("Humanoid")
+	assert(humanoid~=nil and humanoid:IsA("Humanoid"), "Can't create wallstick controller without a character model humanoid")	
+	self.Humanoid = humanoid
+	
+	assert(humanoid.RootPart~=nil and humanoid.RootPart:IsA("BasePart"), "Can't create wallstick controller without a humanoid root part")
+	self.HRP = humanoid.RootPart :: BasePart
+	
+	-- mgmTodo: Refactor these sanity checks I added for testing/qa purposes
+	-- they most likely aren't needed or should only be enabled in debug mode
 	self.Maid:Mark(
 		player.CharacterAdded:Connect(function(character:Model)
-			self:CharacterAdded(character) 
+			warn("possibly stale wallstick controller is attached to a player that fired CharacterAdded") 
 		end)
 	)
-	if player.Character then
-		self:CharacterAdded(player.Character)
-	end
-	self.Physics = Physics.new(self :: any)
-
-	self._camera = Camera.new(self :: any)
+	self.Maid:Mark(
+		player.CharacterRemoving:Connect(function(character:Model)
+			warn("stale wallstick controller needs to be shut down on player that fired CharacterRemoving") 
+		end)
+	)
+	self.Maid:Mark(
+		--humanoid.Died?
+		humanoid.Destroying:Connect(function()
+			warn("stale wallstick controller needs to be shut down on player that fired humanoid.Destroying") 
+		end)
+	)
+	self.Maid:Mark(
+		humanoid:GetPropertyChangedSignal("RootPart"):Connect(function()
+			error("wallstick controller needs to deal with a changed humanoid.RootPart") 
+		end)
+	)
+	
+	self.Physics = Physics.new(self)
+	self._camera = Camera.new(self)
 	self._control = Control.new(self)
 	self._animation = Animation.new(self)
-
-	self._seated = false
-	self._replicateTick = -1
-	self._collisionParts = {}
-	self._fallStart = 0
-
-	self.Changed = Signal.new()
-
-	self.Part = nil
-	self.Normal = UNIT_Y
-	self.Mode = nil
-
+	
 	self:_init()
 
 	return self
 end
 
+
 -- Private Methods
 
 
-local function setCollisionGroupId(array, id)
+local function setCollisionGroupId(array: {Instance}, id: number)
 	for _, part in pairs(array) do
 		if part:IsA("BasePart") then
 			part.CollisionGroupId = id
@@ -102,7 +164,7 @@ local function getRotationBetween(u, v, axis)
 	return CFrame.new(0, 0, 0, uxv.x, uxv.y, uxv.z, 1 + dot)
 end
 
-local function generalStep(self: Wallstick, dt)
+local function generalStep(self: WallstickInstance, dt)
 	self.HRP.Velocity = ZERO3
 	self.HRP.RotVelocity = ZERO3
 	self.HRP.CFrame = self.Part.CFrame * self.Physics.Floor.CFrame:ToObjectSpace(self.Physics.HRP.CFrame)
@@ -116,7 +178,7 @@ local function generalStep(self: Wallstick, dt)
 	self._camera:SetUpVector(self.Part.CFrame:VectorToWorldSpace(self.Normal))
 end
 
-local function collisionStep(self: Wallstick, dt)
+local function collisionStep(self: WallstickInstance, dt)
 	local parts = workspace:FindPartsInRegion3WithIgnoreList(Region3.new(
 		self.HRP.Position - CONSTANTS.COLLIDER_SIZE2,
 		self.HRP.Position + CONSTANTS.COLLIDER_SIZE2
@@ -213,11 +275,21 @@ local function collisionStep(self: Wallstick, dt)
 	end
 end
 
-local function characterStep(self: Wallstick, dt)
+local VRService = game:GetService("VRService")
+
+local function characterStep(self: WallstickInstance, dt)
 	local move = self._control:GetMoveVector()
+	local cameraCF = workspace.Camera.CFrame
+	--local viewAdjustment = CFrame.identity
+	if VRService.VREnabled then
+		-- mgmTodo: VR Support has far to go. This does not work
+		-- Several VRCamera methods need separate overrides on them in UpVectorCamera
+		local headCF = VRService:GetUserCFrame(Enum.UserCFrame.Head)
+		move = headCF:VectorToObjectSpace(move)
+		cameraCF = cameraCF * headCF
+	end
 	
 	if self.Mode ~= "Debug" then
-		local cameraCF = workspace.Camera.CFrame
 		local physicsCameraCF = self.Physics.HRP.CFrame * self.HRP.CFrame:ToObjectSpace(cameraCF)
 
 		local c, s
@@ -258,7 +330,7 @@ local function replicateStep(self, dt)
 	end
 end
 
-local function setSeated(self, bool)
+local function setSeated(self: WallstickInstance, bool)
 	if self._seated == bool then
 		return
 	end
@@ -269,6 +341,9 @@ local function setSeated(self, bool)
 		setCollisionGroupId(self.Character:GetChildren(), CONSTANTS.PHYSICS_ID)
 		self.Humanoid.PlatformStand = true
 		self:Set(self.Part, self.Normal)
+	elseif self.Humanoid.SeatPart==nil then
+		warn("WallstickClient called setseated with unseated humanoid")
+		setSeated(self, false)
 	else
 		self:Set(self.Humanoid.SeatPart, UNIT_Y)
 		self.Physics.HRP.Anchored = true
@@ -281,12 +356,12 @@ local function setSeated(self, bool)
 	self._seated = bool
 end
 
-function WallstickClass:_init()
+function WallstickClass._init(self:WallstickInstance)
 	setCollisionGroupId(self.Character:GetChildren(), CONSTANTS.PHYSICS_ID)
 	SetCollidable:FireServer(false)
 
 	self.Humanoid.PlatformStand = true
-	self:SetMode(CONSTANTS.DEFAULT_CAMERA_MODE)
+	self:SetMode(CONSTANTS.GetDefaultCameraMode()) --CONSTANTS.DEFAULT_CAMERA_MODE)
 	self:Set(workspace.Terrain, UNIT_Y)
 
 	self.Maid:Mark(self._camera)
@@ -343,7 +418,7 @@ end
 
 -- Public Methods
 
-function WallstickClass:SetMode(mode)
+function WallstickClass.SetMode(self: WallstickInstance, mode: CameraModeEnum)
 	self.Mode = mode
 	self._camera:SetMode(mode)
 end
@@ -357,11 +432,13 @@ function WallstickClass:SetTransitionRate(rate)
 end
 
 function WallstickClass:GetFallHeight()
-	local height = self.Physics.HRP.Position.y
+	local self = self :: WallstickInstance
+	
+	local height = self.Physics.HRP.Position.Y
 	return height, height - self._fallStart
 end
 
-function WallstickClass:Set(part, normal, teleportCF)
+function WallstickClass.Set(self: WallstickInstance, part: BasePart, normal: Vector3, teleportCF:CFrame?)
 	if self._seated then
 		return
 	end
@@ -389,8 +466,8 @@ function WallstickClass:Set(part, normal, teleportCF)
 	local targetCF = self.Physics.Floor.CFrame * part.CFrame:ToObjectSpace(teleportCF or self.HRP.CFrame)
 	local sphericalArc = getRotationBetween(targetCF.YVector, UNIT_Y, targetCF.XVector)
 
-	physicsHRP.CFrame = (sphericalArc * (targetCF - targetCF.p)) + targetCF.p
-	self._fallStart = self.Physics.HRP.Position.y
+	physicsHRP.CFrame = (sphericalArc * (targetCF - targetCF.Position)) + targetCF.Position
+	self._fallStart = self.Physics.HRP.Position.Y
 	
 	if CONSTANTS.MAINTAIN_WORLD_VELOCITY then
 		physicsHRP.Velocity = targetCF:VectorToWorldSpace(vel)
@@ -414,6 +491,7 @@ function WallstickClass:Set(part, normal, teleportCF)
 end
 
 function WallstickClass:Destroy()
+	print("wallstick controller is being destroyed and cleaning up") 
 	self.Humanoid.PlatformStand = false
 	setCollisionGroupId(self.Character:GetChildren(), 0)
 	RunService:UnbindFromRenderStep("WallstickStep")
@@ -422,7 +500,15 @@ function WallstickClass:Destroy()
 	self.Maid:Sweep()
 end
 
-type Wallstick = typeof(WallstickClass.new(nil :: any))
---
+WallstickModule.TypeDefs = typeDefs
+typeDefs.WallstickClass = VOID :: WallstickClass
+typeDefs.WallstickState = VOID :: WallstickState
+typeDefs.WallstickInstance = VOID :: WallstickInstance
+typeDefs.WallstickModule = VOID :: WallstickModule
 
-return WallstickClass
+export type WallstickState = typeof(typeDefs.WallstickState)
+export type WallstickClass = typeof(WallstickClass)
+export type WallstickInstance = WallstickState & WallstickClass -- typeof(WallstickModule.new(VOID :: Player))
+export type WallstickModule = typeof(WallstickModule)
+
+return WallstickModule

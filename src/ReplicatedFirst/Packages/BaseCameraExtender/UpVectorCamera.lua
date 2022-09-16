@@ -1,6 +1,7 @@
 --!strict
 
 --[[
+-- no longer used and should be removed:
 local MIN_Y = math.rad(-80)
 local MAX_Y = math.rad(80)
 local ZERO3 = Vector3.new(0, 0, 0)

@@ -1,7 +1,11 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local WallstickClass = require(ReplicatedStorage:WaitForChild("Wallstick"))
+local WallstickClass = require(--ReplicatedStorage:WaitForChild("Wallstick"))
+	game:GetService("ReplicatedFirst")
+	:WaitForChild("Packages")
+	:WaitForChild("WallstickClient")
+)
 local wallstick = nil
 
 local module = {}

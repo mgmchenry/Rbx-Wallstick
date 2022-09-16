@@ -4,8 +4,9 @@
 local CONSTANTS = require(script.Parent.Parent:WaitForChild("Constants"))
 
 local UNIT_Y = Vector3.new(0, 1, 0)
-type UpVectorCamera = typeof(require(game:GetService("ReplicatedFirst").Packages.BaseCameraExtender.UpVectorCamera))
 
+type CameraModeEnum = CONSTANTS.CameraModeEnum
+type UpVectorCamera = typeof(require(game:GetService("ReplicatedFirst").Packages.BaseCameraExtender.UpVectorCamera))
 type WallstickState = typeof(require(script.Parent.Parent.WallstickState))
 -- Class
 
@@ -17,13 +18,9 @@ local CameraClass = {
 CameraClass.__index = CameraClass
 CameraClass.ClassName = "Camera"
 
-local function GetPackageBase() : typeof(game:GetService("ReplicatedFirst").Packages)
-	return script.Parent.Parent.Parent --.Parent.Packages
-end
-
 -- Public Constructors
-function CameraClass.new(wallstick: WallstickState)
-	local self = setmetatable({}, CameraClass)
+function CameraClass.new(wallstick: WallstickState) : CameraInstance
+	local self: CameraInstance = setmetatable({}, CameraClass) :: any
 
 	local player = wallstick.Player
 	--local playerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
@@ -46,7 +43,7 @@ end
 
 -- Private methods
 
-function init(self: CameraClass)
+function init(self: CameraInstance)
 	self.UpVectorCamera:SetTransitionRate(0.15)
 	self:SetSpinPart(workspace.Terrain)
 	self.UpVectorCamera.GetUpVector = function(this, upVector:Vector3)
@@ -56,7 +53,7 @@ end
 
 -- Public Methods
 
-function CameraClass:SetMode(mode)
+function CameraClass.SetMode(self:CameraInstance, mode:CameraModeEnum)
 	local camera = workspace.CurrentCamera
 
 	if mode == "Default" then
@@ -66,6 +63,9 @@ function CameraClass:SetMode(mode)
 		self.UpVectorCamera:SetSpinPart(workspace.Terrain)
 		camera.CameraSubject = self.Wallstick.Humanoid
 	elseif mode == "Debug" then
+		-- mgmTodo: Refactor this to be more loosely coupled.
+		-- Physics is already not in WallstickState to avoid the circular type dependency
+		-- probably pass world humanoid and debug humanoid so Camera doesn't need to know about Physics or Wallstick.
 		camera.CameraSubject = self.Wallstick.Physics.Humanoid
 	end
 end
@@ -90,7 +90,6 @@ function CameraClass:Destroy()
 	end
 end
 
-type CameraClass = typeof(CameraClass)
---
+export type CameraInstance = typeof(CameraClass)
 
 return CameraClass

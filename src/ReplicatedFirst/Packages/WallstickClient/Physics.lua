@@ -33,7 +33,7 @@ typeDefs.PhysicsInstanceState = {
 	Wallstick = VOID :: Wallstick,
 	World = VOID :: Model,
 	Collision = VOID :: Model,
-	Floor = VOID :: BasePart?,
+	Floor = VOID :: BasePart,
 	_floorResized = VOID :: RBXScriptConnection?,
 	--mgmTodo refactor - _floorResized connection:
 	-- 1) should it not get a maid for consitency and safety? it is cleaned up in PhysicsClass:Destroy and PhysicsClass:UpdateFloor
@@ -62,7 +62,7 @@ local function PhysicsClass_new(wallstick:Wallstick)
 	self.Collision.Name = "PhysicsCollision"
 	self.Collision.Parent = self.World
 
-	self.Floor = nil
+	self.Floor = VOID
 	self._floorResized = nil
 	
 	local character:Model = wallstick.Player.Character :: any
@@ -139,7 +139,7 @@ function PhysicsClass.UpdateGyro(self: PhysicsInstance)
 	
 	if neverHappened and self.Wallstick.Physics.HRP ~= self.HRP then
 		warn("Wallstick PhysicsClass UpdateGyro - issue with refactor of self.Wallstick.Physics.HRP to self.HRP")
-		warn("They are not exual and it was assumed that is not possible")
+		warn("They are not equal and it was assumed that is not possible")
 		if isStudio then
 			error("Now you know")
 		else
@@ -164,7 +164,7 @@ end
 function PhysicsClass.UpdateFloor(self:PhysicsInstance , prevPart: BasePart, newPart: BasePart, prevNormal: Vector3, newNormal: Vector3)
 	if self.Floor then
 		self.Floor:Destroy()
-		self.Floor = nil
+		self.Floor = VOID
 	end
 
 	local floor:BasePart = nil
